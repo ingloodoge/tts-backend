@@ -2,13 +2,14 @@ const express = require('express');
 const multer = require('multer');
 const cors = require('cors');
 const fs = require('fs');
-const pdfParse = require('pdf-parse');
 const path = require('path');
 const axios = require('axios');
-const archiver = require('archiver');
+const pdfParse = require('pdf-parse');
 require('dotenv').config();
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(cors());
 app.use(express.json());
 
@@ -16,7 +17,7 @@ const upload = multer({ dest: 'uploads/' });
 const AUDIO_DIR = path.join(__dirname, 'audios');
 if (!fs.existsSync(AUDIO_DIR)) fs.mkdirSync(AUDIO_DIR);
 
-// 清理文件夹
+// 清空文件夹
 function clearFolder(folderPath) {
   fs.readdirSync(folderPath).forEach(file => {
     const filePath = path.join(folderPath, file);
@@ -24,7 +25,7 @@ function clearFolder(folderPath) {
   });
 }
 
-// 调用讯飞 TTS
+// 调用讯飞 TTS 合成音频
 async function synthesizeSpeech(text, index) {
   const { APPID, APIKey, APISecret, APIURL } = process.env;
 
@@ -46,8 +47,8 @@ async function synthesizeSpeech(text, index) {
   };
 
   const timestamp = Math.floor(Date.now() / 1000);
-  const signatureOrigin = APIKey + timestamp;
   const CryptoJS = require("crypto-js");
+  const signatureOrigin = APIKey + timestamp;
   const signature = CryptoJS.HmacSHA256(signatureOrigin, APISecret).toString(CryptoJS.enc.Base64);
   const auth = Buffer.from(`${APIKey}:${timestamp}:${signature}`).toString('base64');
 
@@ -63,40 +64,59 @@ async function synthesizeSpeech(text, index) {
   fs.writeFileSync(filePath, response.data);
 }
 
-// 接收 PDF -> 合成语音 -> 打包
+// 上传 PDF -> 合成语音 -> 打包 ZIP
 app.post('/api/pdf-to-zip', upload.single('file'), async (req, res) => {
-  clearFolder(AUDIO_DIR);
-
-  const pdfBuffer = fs.readFileSync(req.file.path);
-  const parsed = await pdfParse(pdfBuffer);
-  const pages = parsed.text.split('\n\n').filter(p => p.trim().length > 20); // 简单分页逻辑
-
   try {
+    clearFolder(AUDIO_DIR);
+
+    const pdfBuffer = fs.readFileSync(req.file.path);
+    const parsed = await pdfParse(pdfBuffer);
+    const pages = parsed.text
+      .split('\n\n')
+      .filter(p => p.trim().length > 20);
+
     for (let i = 0; i < pages.length; i++) {
       await synthesizeSpeech(pages[i], i);
     }
 
-    // 打包 ZIP
-    const zipPath = path.join(__dirname, 'tts-audio.zip');
+    // 打包成 zip
+    const archiver = require('archiver');
+    const zipFilename = 'output.zip';
+    const zipPath = path.join(AUDIO_DIR, zipFilename);
     const output = fs.createWriteStream(zipPath);
     const archive = archiver('zip');
 
+    archive.pipe(output);
+    fs.readdirSync(AUDIO_DIR).forEach(file => {
+      if (file !== zipFilename) {
+        archive.file(path.join(AUDIO_DIR, file), { name: file });
+      }
+    });
+    await archive.finalize();
+
     output.on('close', () => {
-      res.download(zipPath, 'tts-audio.zip', () => {
-        fs.unlinkSync(zipPath);
+      res.json({
+        success: true,
+        downloadUrl: `${req.protocol}://${req.get('host')}/download/${zipFilename}`
       });
     });
 
-    archive.pipe(output);
-    archive.directory(AUDIO_DIR, false);
-    archive.finalize();
   } catch (err) {
-    console.error('❌ 合成失败：', err.toString());
-    res.status(500).json({ error: '语音合成失败' });
-  } finally {
-    fs.unlinkSync(req.file.path);
+    console.error(err);
+    res.status(500).json({ success: false, message: '服务器出错' });
   }
 });
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`✅ 后端已启动：http://localhost:${PORT}`));
+// 提供 zip 下载接口
+app.get('/download/:filename', (req, res) => {
+  const filePath = path.join(AUDIO_DIR, req.params.filename);
+  if (fs.existsSync(filePath)) {
+    res.download(filePath);
+  } else {
+    res.status(404).send('文件未找到');
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
