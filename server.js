@@ -34,7 +34,7 @@ async function synthesizeSpeech(text, index) {
     business: {
       aue: "lame",
       sfl: 1,
-      vcn: "x_xiaofeng",
+      vcn: "x4_yeting",
       speed: 50,
       volume: 50,
       pitch: 50,
