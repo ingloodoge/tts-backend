@@ -102,9 +102,9 @@ app.post('/api/pdf-to-zip', upload.single('file'), async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: '服务器出错' });
-  }
+    console.error('🔥 TTS ERROR >>>', err.response?.data?.toString() || err.message || err.toString());
+    res.status(500).json({ success: false, message: '服务器错误' });
+  }  
 });
 
 // 提供 zip 下载接口
