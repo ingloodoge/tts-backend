@@ -65,6 +65,14 @@ async function synthesizeSpeech(text, index) {
 }
 
 // 上传 PDF -> 合成语音 -> 打包 ZIP
+
+console.log("🔎 ENV TEST >>>", {
+  APPID: process.env.APPID,
+  APIKey: process.env.APIKey,
+  APISecret: process.env.APISecret ? "***" : "MISSING",
+  APIURL: process.env.APIURL
+});
+
 app.post('/api/pdf-to-zip', upload.single('file'), async (req, res) => {
   try {
     clearFolder(AUDIO_DIR);
